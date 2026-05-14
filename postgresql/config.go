@@ -185,7 +185,7 @@ type Config struct {
 	MaxConns                        int
 	MaxIdleConns                    int
 	MaxTotalConns                   int
-	ConnMaxIdleTime                 time.Duration
+	ConnMaxIdleTimeSec              int
 	MaxRetries                      int
 	ExpectedVersion                 semver.Version
 	SSLClientCert                   *ClientCertificateConfig
@@ -372,8 +372,8 @@ func (c *Client) openAndPing(dsn string) (*DBConnection, error) {
 	}
 	db.SetMaxIdleConns(maxIdle)
 	db.SetMaxOpenConns(c.config.MaxConns)
-	if c.config.ConnMaxIdleTime > 0 {
-		db.SetConnMaxIdleTime(c.config.ConnMaxIdleTime)
+	if c.config.ConnMaxIdleTimeSec > 0 {
+		db.SetConnMaxIdleTime(time.Duration(c.config.ConnMaxIdleTimeSec) * time.Second)
 	}
 
 	defaultVersion, _ := semver.Parse(defaultExpectedPostgreSQLVersion)

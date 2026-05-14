@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -28,7 +27,8 @@ const (
 	defaultProviderMaxIdleConnections  = 0
 	defaultProviderMaxTotalConnections = 0
 	defaultProviderMaxRetries          = 3
-	defaultAutoIdleTime                = 30 * time.Second
+	defaultProviderConnMaxIdleTimeSec  = -1 // sentinel: -1 = auto, 0 = unlimited, N>0 = seconds
+	defaultAutoIdleTimeSec             = 30
 	defaultExpectedPostgreSQLVersion   = "9.0.0"
 )
 
@@ -214,11 +214,11 @@ func Provider() *schema.Provider {
 				ValidateFunc: validation.IntAtLeast(0),
 			},
 			"conn_max_idle_time": {
-				Type:         schema.TypeString,
+				Type:         schema.TypeInt,
 				Optional:     true,
-				Default:      "",
-				Description:  "Maximum time a connection may be idle before it is closed (Go duration string, e.g. `30s`, `5m`). Defaults to unlimited, except when either `max_total_connections` or `max_idle_connections` is set — then it auto-defaults to `30s` so idle connections release their slot/pool position periodically and PgBouncer doesn't see stale sessions. Set explicitly to override.",
-				ValidateFunc: validateDurationString,
+				Default:      defaultProviderConnMaxIdleTimeSec,
+				Description:  "Maximum time a connection may be idle before it is closed, in seconds. `0` means unlimited; `-1` (default) auto-defaults to `30` when either `max_total_connections` or `max_idle_connections` is set (so idle connections release their slot/pool position periodically and PgBouncer doesn't see stale sessions).",
+				ValidateFunc: validation.IntAtLeast(-1),
 			},
 			"max_retries": {
 				Type:         schema.TypeInt,
@@ -267,17 +267,6 @@ func Provider() *schema.Provider {
 func validateExpectedVersion(v any, key string) (warnings []string, errors []error) {
 	if _, err := semver.ParseTolerant(v.(string)); err != nil {
 		errors = append(errors, fmt.Errorf("invalid version (%q): %w", v.(string), err))
-	}
-	return
-}
-
-func validateDurationString(v any, key string) (warnings []string, errors []error) {
-	s := v.(string)
-	if s == "" {
-		return
-	}
-	if _, err := time.ParseDuration(s); err != nil {
-		errors = append(errors, fmt.Errorf("invalid duration for %q (%q): %w", key, s, err))
 	}
 	return
 }
@@ -421,20 +410,17 @@ func providerConfigure(d *schema.ResourceData) (any, error) {
 	maxTotalConns := d.Get("max_total_connections").(int)
 	maxIdleConns := d.Get("max_idle_connections").(int)
 
-	connMaxIdleTimeStr := d.Get("conn_max_idle_time").(string)
-	var connMaxIdleTime time.Duration
-	if connMaxIdleTimeStr != "" {
-		var err error
-		connMaxIdleTime, err = time.ParseDuration(connMaxIdleTimeStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid conn_max_idle_time %q: %w", connMaxIdleTimeStr, err)
-		}
-	} else if (scheme == "postgres" && maxTotalConns > 0) || maxIdleConns > 0 {
+	connMaxIdleTimeSec := d.Get("conn_max_idle_time").(int)
+	if connMaxIdleTimeSec == -1 {
 		// Idle conns hold semaphore slots / can go stale behind PgBouncer.
 		// Skipped for gcppostgres/awspostgres + max_total_connections only,
 		// where the semaphore doesn't apply.
-		connMaxIdleTime = defaultAutoIdleTime
-		log.Printf("[INFO] postgresql: auto-defaulting conn_max_idle_time to %s; set an explicit value to override", defaultAutoIdleTime)
+		if (scheme == "postgres" && maxTotalConns > 0) || maxIdleConns > 0 {
+			connMaxIdleTimeSec = defaultAutoIdleTimeSec
+			log.Printf("[INFO] postgresql: auto-defaulting conn_max_idle_time to %ds; set an explicit value to override", defaultAutoIdleTimeSec)
+		} else {
+			connMaxIdleTimeSec = 0
+		}
 	}
 
 	config := Config{
@@ -451,7 +437,7 @@ func providerConfigure(d *schema.ResourceData) (any, error) {
 		MaxConns:                        d.Get("max_connections").(int),
 		MaxIdleConns:                    maxIdleConns,
 		MaxTotalConns:                   maxTotalConns,
-		ConnMaxIdleTime:                 connMaxIdleTime,
+		ConnMaxIdleTimeSec:              connMaxIdleTimeSec,
 		MaxRetries:                      d.Get("max_retries").(int),
 		ExpectedVersion:                 version,
 		SSLRootCertPath:                 d.Get("sslrootcert").(string),

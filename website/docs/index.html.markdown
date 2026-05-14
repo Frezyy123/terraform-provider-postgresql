@@ -192,12 +192,10 @@ The following arguments are supported:
   [Connection pooling with PgBouncer](#connection-pooling-with-pgbouncer) for
   when and how to use this.
 * `conn_max_idle_time` - (Optional) Maximum time a connection may sit idle in
-  the pool before it is closed, expressed as a Go duration string
-  (e.g. `30s`, `5m`). Defaults to unlimited, except when either
-  `max_total_connections` or `max_idle_connections` is set, in which case it
-  auto-defaults to `30s` so idle connections release their slot/pool position
-  periodically and don't become stale behind PgBouncer. Set an explicit value
-  to override.
+  the pool before it is closed, in seconds. `0` means unlimited; `-1`
+  (default) auto-defaults to `30` when either `max_total_connections` or
+  `max_idle_connections` is set, so idle connections release their slot/pool
+  position periodically and don't become stale behind PgBouncer.
 * `max_retries` - (Optional) Maximum number of times to retry starting a
   transaction on transient connection errors (`connection reset by peer`,
   broken pipe, `driver.ErrBadConn`, PgBouncer `admin_shutdown`, etc.).
@@ -246,7 +244,7 @@ provider "postgresql" {
   max_connections       = 5         # per-pool cap (unchanged behavior)
   max_total_connections = 15        # cap across all per-database pools of this provider
   max_idle_connections  = 3
-  conn_max_idle_time    = "30s"
+  conn_max_idle_time    = 30        # seconds
   max_retries           = 3
 }
 ```
