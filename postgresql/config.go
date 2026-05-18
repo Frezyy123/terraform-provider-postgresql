@@ -163,6 +163,10 @@ func (db *DBConnection) isSuperuser() (bool, error) {
 	return superuser, nil
 }
 
+func (db *DBConnection) IsLockGrants() bool {
+	return db.client.IsLockGrants()
+}
+
 type ClientCertificateConfig struct {
 	CertificatePath string
 	KeyPath         string
@@ -191,12 +195,12 @@ type Config struct {
 	SSLClientCert                   *ClientCertificateConfig
 	SSLRootCertPath                 string
 	GCPIAMImpersonateServiceAccount string
-
 	// scheduler and poolRegistry are reference types so Config value copies
 	// made by NewClient share the same underlying state across all
 	// per-database pools belonging to this provider configuration.
 	scheduler    *dbScheduler
 	poolRegistry *sync.Map // map[string]*registryEntry
+	LockGrants   bool
 }
 
 // Client struct holding connection string
@@ -375,6 +379,10 @@ func (c *Client) openAndPing(dsn string) (*DBConnection, error) {
 		c,
 		*version,
 	}, nil
+}
+
+func (c *Client) IsLockGrants() bool {
+	return c.config.LockGrants
 }
 
 // fingerprintCapabilities queries PostgreSQL to populate a local catalog of

@@ -30,6 +30,7 @@ const (
 	defaultProviderConnMaxIdleTimeSec     = -1 // sentinel: -1 = auto, 0 = unlimited, N>0 = seconds
 	defaultAutoIdleTimeSec                = 30
 	defaultExpectedPostgreSQLVersion      = "9.0.0"
+	defaultLockGrants                     = false
 )
 
 // Provider returns a terraform.ResourceProvider.
@@ -233,6 +234,12 @@ func Provider() *schema.Provider {
 				Default:      defaultExpectedPostgreSQLVersion,
 				Description:  "Specify the expected version of PostgreSQL.",
 				ValidateFunc: validateExpectedVersion,
+			},
+			"lock_grants": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     defaultLockGrants,
+				Description: "Wrap GRANT/REVOKEs in a lock to avoid executing them in parallel.",
 			},
 		},
 
@@ -438,6 +445,7 @@ func providerConfigure(d *schema.ResourceData) (any, error) {
 		ExpectedVersion:                 version,
 		SSLRootCertPath:                 d.Get("sslrootcert").(string),
 		GCPIAMImpersonateServiceAccount: d.Get("gcp_iam_impersonate_service_account").(string),
+		LockGrants:                      d.Get("lock_grants").(bool),
 	}
 
 	if value, ok := d.GetOk("clientcert"); ok {
