@@ -438,6 +438,41 @@ func setToPgIdentSimpleList(idents *schema.Set) string {
 	return strings.Join(quotedIdents, ",")
 }
 
+// retryTransient runs fn up to client.config.MaxRetries times on transient
+// connection errors. action is included in retry logs to identify the caller.
+func retryTransient[T any](client *Client, action string, fn func() (T, error)) (T, error) {
+	maxRetries := client.config.MaxRetries
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+
+	var zero T
+	var lastErr error
+	backoff := 100 * time.Millisecond
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			errString := strings.Replace(lastErr.Error(), client.config.Password, "XXXX", 2)
+			tflog.Warn(context.Background(), "retrying after transient error", map[string]interface{}{
+				"action":      action,
+				"attempt":     attempt + 1,
+				"max_retries": maxRetries + 1,
+				"error":       errString,
+			})
+			time.Sleep(backoff)
+			backoff *= 3
+		}
+		result, err := fn()
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		if !isTransientConnErr(err) {
+			break
+		}
+	}
+	return zero, lastErr
+}
+
 // startTransaction begins a transaction on the given database, retrying BEGIN
 // (and only BEGIN — never Commit or in-transaction statements) up to
 // client.config.MaxRetries times on transient connection errors.
@@ -450,34 +485,11 @@ func startTransaction(client *Client, database string) (*sql.Tx, error) {
 		return nil, err
 	}
 
-	maxRetries := client.config.MaxRetries
-	if maxRetries < 0 {
-		maxRetries = 0
+	txn, err := retryTransient(client, "transaction begin", db.Begin)
+	if err != nil {
+		return nil, fmt.Errorf("could not start transaction: %w", err)
 	}
-
-	var lastErr error
-	backoff := 100 * time.Millisecond
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			errString := strings.Replace(lastErr.Error(), client.config.Password, "XXXX", 2)
-			tflog.Warn(context.Background(), "retrying transaction begin after transient error", map[string]interface{}{
-				"attempt":     attempt + 1,
-				"max_retries": maxRetries + 1,
-				"error":       errString,
-			})
-			time.Sleep(backoff)
-			backoff *= 3
-		}
-		txn, err := db.Begin()
-		if err == nil {
-			return txn, nil
-		}
-		lastErr = err
-		if !isTransientConnErr(err) {
-			break
-		}
-	}
-	return nil, fmt.Errorf("could not start transaction: %w", lastErr)
+	return txn, nil
 }
 
 // isTransientConnErr reports whether err is a connection-level failure safe
