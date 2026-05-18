@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/lib/pq"
 )
@@ -458,8 +459,12 @@ func startTransaction(client *Client, database string) (*sql.Tx, error) {
 	backoff := 100 * time.Millisecond
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			log.Printf("[DEBUG] postgresql: retrying transaction begin (attempt %d/%d) after transient error: %v",
-				attempt+1, maxRetries+1, lastErr)
+			errString := strings.Replace(lastErr.Error(), client.config.Password, "XXXX", 2)
+			tflog.Warn(context.Background(), "retrying transaction begin after transient error", map[string]interface{}{
+				"attempt":     attempt + 1,
+				"max_retries": maxRetries + 1,
+				"error":       errString,
+			})
 			time.Sleep(backoff)
 			backoff *= 3
 		}

@@ -330,6 +330,7 @@ func (c *Client) Connect() (*DBConnection, error) {
 const connectRetryDelay = 5 * time.Second
 
 func (c *Client) openAndPing(dsn string) (*DBConnection, error) {
+	var attempt int
 	for {
 		conn, err := c.openAndPingOnce(dsn)
 		if err == nil {
@@ -339,11 +340,12 @@ func (c *Client) openAndPing(dsn string) (*DBConnection, error) {
 		if !isTransientConnErr(err) {
 			return nil, fmt.Errorf("error connecting to PostgreSQL server %s (scheme: %s): %s", c.config.Host, c.config.Scheme, errString)
 		}
-		tflog.Info(context.Background(), "retrying connection to PostgreSQL server after transient error", map[string]interface{}{
-			"host":  c.config.Host,
-			"error": errString,
+		tflog.Warn(context.Background(), "retrying connection to PostgreSQL server after transient error", map[string]interface{}{
+			"attempt": attempt + 1,
+			"error":   errString,
 		})
 		time.Sleep(connectRetryDelay)
+		attempt++
 	}
 }
 
