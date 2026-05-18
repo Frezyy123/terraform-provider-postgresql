@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/blang/semver"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	_ "github.com/lib/pq" // PostgreSQL db
 	"gocloud.dev/gcp"
 	"gocloud.dev/gcp/cloudsql"
@@ -326,7 +327,27 @@ func (c *Client) Connect() (*DBConnection, error) {
 	return entry.conn, entry.err
 }
 
+const connectRetryDelay = 5 * time.Second
+
 func (c *Client) openAndPing(dsn string) (*DBConnection, error) {
+	for {
+		conn, err := c.openAndPingOnce(dsn)
+		if err == nil {
+			return conn, nil
+		}
+		errString := strings.Replace(err.Error(), c.config.Password, "XXXX", 2)
+		if !isTransientConnErr(err) {
+			return nil, fmt.Errorf("error connecting to PostgreSQL server %s (scheme: %s): %s", c.config.Host, c.config.Scheme, errString)
+		}
+		tflog.Info(context.Background(), "retrying connection to PostgreSQL server after transient error", map[string]interface{}{
+			"host":  c.config.Host,
+			"error": errString,
+		})
+		time.Sleep(connectRetryDelay)
+	}
+}
+
+func (c *Client) openAndPingOnce(dsn string) (*DBConnection, error) {
 	var db *sql.DB
 	var err error
 	if c.config.Scheme == "postgres" {
@@ -346,8 +367,7 @@ func (c *Client) openAndPing(dsn string) (*DBConnection, error) {
 		if db != nil {
 			_ = db.Close()
 		}
-		errString := strings.Replace(err.Error(), c.config.Password, "XXXX", 2)
-		return nil, fmt.Errorf("error connecting to PostgreSQL server %s (scheme: %s): %s", c.config.Host, c.config.Scheme, errString)
+		return nil, err
 	}
 
 	// Default MaxIdleConns=0 closes connections after use so DROP DATABASE

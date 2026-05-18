@@ -478,7 +478,7 @@ func startTransaction(client *Client, database string) (*sql.Tx, error) {
 // isTransientConnErr reports whether err is a connection-level failure safe
 // to retry. Includes the *net.OpError path that lib/pq returns raw instead of
 // wrapping in driver.ErrBadConn — without which database/sql's built-in retry
-// would not fire.
+// would not fire, and PostgreSQL resource limits such as too_many_connections.
 func isTransientConnErr(err error) bool {
 	if err == nil {
 		return false
@@ -498,6 +498,9 @@ func isTransientConnErr(err error) bool {
 		switch pqErr.Code {
 		// connection_failure, connection_does_not_exist, admin_shutdown
 		case "08006", "08003", "57P01":
+			return true
+		// too_many_connections, too_many_connections_for_role
+		case "53300", "53301":
 			return true
 		}
 	}
