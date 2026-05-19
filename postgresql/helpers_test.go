@@ -132,6 +132,8 @@ func TestIsTransientConnErr(t *testing.T) {
 		{"pq error 08006", &pq.Error{Code: "08006"}, true},
 		{"pq error 08003", &pq.Error{Code: "08003"}, true},
 		{"pq error 57P01", &pq.Error{Code: "57P01"}, true},
+		{"pq error 53300 (too many connections)", &pq.Error{Code: "53300", Message: "sorry, too many clients already"}, true},
+		{"pq error 53301 (too many connections for role)", &pq.Error{Code: "53301"}, true},
 		{"pq error 23505 (unique violation)", &pq.Error{Code: "23505"}, false},
 		{"substring connection reset by peer", errors.New("read tcp 1.2.3.4:5432->5.6.7.8:6432: read: connection reset by peer"), true},
 		{"substring broken pipe", errors.New("write: broken pipe"), true},

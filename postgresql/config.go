@@ -331,6 +331,17 @@ func (c *Client) Connect() (*DBConnection, error) {
 }
 
 func (c *Client) openAndPing(dsn string) (*DBConnection, error) {
+	conn, err := retryTransient(c, "connecting to PostgreSQL server", func() (*DBConnection, error) {
+		return c.openAndPingOnce(dsn)
+	})
+	if err != nil {
+		errString := strings.Replace(err.Error(), c.config.Password, "XXXX", 2)
+		return nil, fmt.Errorf("error connecting to PostgreSQL server %s (scheme: %s): %s", c.config.Host, c.config.Scheme, errString)
+	}
+	return conn, nil
+}
+
+func (c *Client) openAndPingOnce(dsn string) (*DBConnection, error) {
 	var db *sql.DB
 	var err error
 	if c.config.Scheme == "postgres" {
@@ -350,8 +361,7 @@ func (c *Client) openAndPing(dsn string) (*DBConnection, error) {
 		if db != nil {
 			_ = db.Close()
 		}
-		errString := strings.Replace(err.Error(), c.config.Password, "XXXX", 2)
-		return nil, fmt.Errorf("error connecting to PostgreSQL server %s (scheme: %s): %s", c.config.Host, c.config.Scheme, errString)
+		return nil, err
 	}
 
 	// Default MaxIdleConns=0 closes connections after use so DROP DATABASE
