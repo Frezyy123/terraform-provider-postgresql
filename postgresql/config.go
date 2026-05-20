@@ -189,6 +189,11 @@ type Config struct {
 	MaxConns                        int
 	MaxIdleConns                    int
 	MaxConcurrentDatabases          int
+	InstanceLock                    bool
+	InstanceName                    string
+	InstanceLockDir                 string
+	InstanceLockWaitLogInterval     int
+	InstanceLockTimeout             int
 	ConnMaxIdleTimeSec              int
 	MaxRetries                      int
 	ExpectedVersion                 semver.Version

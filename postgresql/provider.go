@@ -30,6 +30,9 @@ const (
 	defaultProviderConnMaxIdleTimeSec     = -1 // sentinel: -1 = auto, 0 = unlimited, N>0 = seconds
 	defaultAutoIdleTimeSec                = 30
 	defaultExpectedPostgreSQLVersion      = "9.0.0"
+	defaultInstanceLockWaitLogInterval    = 30
+	defaultInstanceLockTimeout            = 0
+	defaultInstanceLockDir                = "/tmp/terraform-postgres-provider"
 	defaultLockGrants                     = false
 )
 
@@ -235,6 +238,36 @@ func Provider() *schema.Provider {
 				Description:  "Specify the expected version of PostgreSQL.",
 				ValidateFunc: validateExpectedVersion,
 			},
+			"instance_lock": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				Description: "When true, acquire a filesystem flock on the PostgreSQL instance for the entire Terraform process so only one plan/apply runs at a time across separate Terraform invocations (e.g. parallel CI jobs). Requires `instance_name`.",
+			},
+			"instance_name": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "Logical name of the PostgreSQL instance used for the cross-process lock file (`<instance_lock_dir>/<instance_name>.lock`). Required when `instance_lock` is true.",
+			},
+			"instance_lock_dir": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Default:     defaultInstanceLockDir,
+				Description: "Directory for cross-process instance lock files. Defaults to `/tmp/terraform-postgres-provider`.",
+			},
+			"instance_lock_wait_log_interval": {
+				Type:         schema.TypeInt,
+				Optional:     true,
+				Default:      defaultInstanceLockWaitLogInterval,
+				Description:  "When waiting for another Terraform process to release the instance lock, log a status message at most once per this many seconds.",
+				ValidateFunc: validation.IntAtLeast(1),
+			},
+			"instance_lock_timeout": {
+				Type:         schema.TypeInt,
+				Optional:     true,
+				Default:      defaultInstanceLockTimeout,
+				Description:  "Maximum seconds to wait for the instance lock. Zero means wait indefinitely.",
+				ValidateFunc: validation.IntAtLeast(0),
 			"lock_grants": {
 				Type:        schema.TypeBool,
 				Optional:    true,
@@ -445,7 +478,16 @@ func providerConfigure(d *schema.ResourceData) (any, error) {
 		ExpectedVersion:                 version,
 		SSLRootCertPath:                 d.Get("sslrootcert").(string),
 		GCPIAMImpersonateServiceAccount: d.Get("gcp_iam_impersonate_service_account").(string),
-		LockGrants:                      d.Get("lock_grants").(bool),
+		InstanceLock:                    d.Get("instance_lock").(bool),
+		InstanceName:                    d.Get("instance_name").(string),
+		InstanceLockDir:                 d.Get("instance_lock_dir").(string),
+		InstanceLockWaitLogInterval:     d.Get("instance_lock_wait_log_interval").(int),
+		InstanceLockTimeout:             d.Get("instance_lock_timeout").(int),
+    LockGrants:                      d.Get("lock_grants").(bool),
+	}
+
+	if config.InstanceLock && config.InstanceName == "" {
+		return nil, fmt.Errorf("postgresql: instance_name is required when instance_lock is true")
 	}
 
 	if value, ok := d.GetOk("clientcert"); ok {
@@ -461,6 +503,12 @@ func providerConfigure(d *schema.ResourceData) (any, error) {
 	if config.Scheme == "gcppostgres" {
 		if err := createGoogleCredsFileIfNeeded(); err != nil {
 			return nil, err
+		}
+	}
+
+	if config.InstanceLock {
+		if err := acquireRunInstanceLock(context.Background(), &config); err != nil {
+			return nil, fmt.Errorf("instance lock %q: %w", config.InstanceName, err)
 		}
 	}
 

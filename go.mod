@@ -13,7 +13,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.2.12
 	github.com/aws/aws-sdk-go-v2/service/sts v1.21.1
 	github.com/blang/semver v3.5.1+incompatible
+	github.com/gofrs/flock v0.12.1
 	github.com/hashicorp/go-cty v1.5.0
+	github.com/hashicorp/terraform-plugin-log v0.9.0
 	github.com/hashicorp/terraform-plugin-sdk/v2 v2.37.0
 	github.com/lib/pq v1.10.9
 	github.com/sean-/postgresql-acl v0.0.0-20161225120419-d10489e5d217
@@ -68,7 +70,6 @@ require (
 	github.com/hashicorp/terraform-exec v0.23.0 // indirect
 	github.com/hashicorp/terraform-json v0.25.0 // indirect
 	github.com/hashicorp/terraform-plugin-go v0.27.0 // indirect
-	github.com/hashicorp/terraform-plugin-log v0.9.0 // indirect
 	github.com/hashicorp/terraform-registry-address v0.2.5 // indirect
 	github.com/hashicorp/terraform-svchost v0.1.1 // indirect
 	github.com/hashicorp/yamux v0.1.1 // indirect
