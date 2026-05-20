@@ -209,6 +209,20 @@ The following arguments are supported:
   Version](https://www.postgresql.org/support/versioning/) or `current`.  Once a
   connection has been established, Terraform will fingerprint the actual
   version.  Default: `9.0.0`.
+* `instance_lock` - (Optional) When `true`, acquire a filesystem lock for the
+  entire Terraform process so only one plan/apply runs at a time against the
+  same logical PostgreSQL instance across separate Terraform invocations (e.g.
+  parallel CI jobs). Requires `instance_name`. Defaults to `false`.
+* `instance_name` - (Optional) Logical name of the PostgreSQL instance used for
+  the cross-process lock file (`<instance_lock_dir>/<instance_name>.lock`).
+  Required when `instance_lock` is `true`.
+* `instance_lock_dir` - (Optional) Directory for cross-process instance lock
+  files. Defaults to `/tmp/terraform-postgres-provider`.
+* `instance_lock_wait_log_interval` - (Optional) While waiting for another
+  Terraform process to release the instance lock, log a status message at most
+  once per this many seconds. Defaults to `30`.
+* `instance_lock_timeout` - (Optional) Maximum seconds to wait for the instance
+  lock. `0` means wait indefinitely. Defaults to `0`.
 * `aws_rds_iam_auth` - (Optional) If set to `true`, call the AWS RDS API to grab a temporary password, using AWS Credentials
   from the environment (or the given profile, see `aws_rds_iam_profile`)
 * `aws_rds_iam_profile` - (Optional) The AWS IAM Profile to use while using AWS RDS IAM Auth.
@@ -265,10 +279,9 @@ Guidelines:
   wait.
 - The limit is **in-process only**. Separate Terraform invocations
   (parallel CI jobs, atlantis `--fast`, multiple PR plans against the same
-  database) each get their own scheduler. If cross-process coordination is
-  needed, throttle at the CI level (e.g. an atlantis concurrency group) or
-  ensure your PgBouncer pool is sized for the maximum expected number of
-  concurrent Terraform processes.
+  database) each get their own scheduler. For cross-process coordination, set
+  `instance_lock = true` and a shared `instance_name` (see below) or throttle
+  at the CI level (e.g. an atlantis concurrency group).
 - The cap is **per provider configuration**. Multiple `provider "postgresql"`
   blocks (with `alias`) each have their own scheduler and pool registry.
 - The provider transparently retries BEGIN on transient connection errors
@@ -276,6 +289,51 @@ Guidelines:
   `admin_shutdown`) up to `max_retries` times with exponential backoff. Only
   BEGIN is retried — Commit and statements inside an open transaction are
   never retried, so no side-effect duplication can occur.
+
+## Cross-process instance lock
+
+When many Terraform runs target the same PostgreSQL instance or PgBouncer pool
+in parallel, connection limits can be exhausted even if each run sets
+`max_concurrent_databases` and `max_connections` conservatively — those settings
+apply **per process**, not globally.
+
+Enable `instance_lock` with a stable `instance_name` shared by every workspace
+that manages the same server:
+
+```hcl
+provider "postgresql" {
+  host          = "pgbouncer.example.com"
+  port          = 6432
+  username      = "tf"
+  password      = "..."
+
+  instance_lock = true
+  instance_name = "prod"
+
+  max_concurrent_databases = 1
+  max_connections          = 2
+}
+```
+
+The provider creates `<instance_lock_dir>/<instance_name>.lock` (default
+`/tmp/terraform-postgres-provider/prod.lock`) and holds an exclusive lock for
+the entire Terraform process (released automatically when the process exits).
+A second process blocks (logging status every `instance_lock_wait_log_interval`
+seconds, including `lock_holder_pid` when available) until the first exits or
+`instance_lock_timeout` elapses. The holder PID is written into the lock file by
+the running provider; `flock` itself does not expose the owner.
+
+Guidelines:
+
+- Use the **same** `instance_name` in every root module or CI job that must not
+  run concurrently against the same server.
+- Multiple `provider "postgresql"` aliases with the same `instance_name` in one
+  process share a single lock (refcounted).
+- Lock files must live on a filesystem where `flock` works reliably (local disk;
+  NFS may be unreliable). Override `instance_lock_dir` if `/tmp` is not shared
+  or not suitable on your runners.
+- `instance_lock` coordinates **processes**; `max_concurrent_databases`
+  coordinates **goroutines** within one process.
 
 ## GoCloud
 
