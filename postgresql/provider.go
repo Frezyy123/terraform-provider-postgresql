@@ -33,6 +33,7 @@ const (
 	defaultInstanceLockWaitLogInterval    = 30
 	defaultInstanceLockTimeout            = 0
 	defaultInstanceLockDir                = "/tmp/terraform-postgres-provider"
+	defaultLockGrants                     = false
 )
 
 // Provider returns a terraform.ResourceProvider.
@@ -267,6 +268,11 @@ func Provider() *schema.Provider {
 				Default:      defaultInstanceLockTimeout,
 				Description:  "Maximum seconds to wait for the instance lock. Zero means wait indefinitely.",
 				ValidateFunc: validation.IntAtLeast(0),
+			"lock_grants": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     defaultLockGrants,
+				Description: "Wrap GRANT/REVOKEs in a lock to avoid executing them in parallel.",
 			},
 		},
 
@@ -477,6 +483,7 @@ func providerConfigure(d *schema.ResourceData) (any, error) {
 		InstanceLockDir:                 d.Get("instance_lock_dir").(string),
 		InstanceLockWaitLogInterval:     d.Get("instance_lock_wait_log_interval").(int),
 		InstanceLockTimeout:             d.Get("instance_lock_timeout").(int),
+    LockGrants:                      d.Get("lock_grants").(bool),
 	}
 
 	if config.InstanceLock && config.InstanceName == "" {

@@ -163,6 +163,10 @@ func (db *DBConnection) isSuperuser() (bool, error) {
 	return superuser, nil
 }
 
+func (db *DBConnection) IsLockGrants() bool {
+	return db.client.IsLockGrants()
+}
+
 type ClientCertificateConfig struct {
 	CertificatePath string
 	KeyPath         string
@@ -196,12 +200,12 @@ type Config struct {
 	SSLClientCert                   *ClientCertificateConfig
 	SSLRootCertPath                 string
 	GCPIAMImpersonateServiceAccount string
-
 	// scheduler and poolRegistry are reference types so Config value copies
 	// made by NewClient share the same underlying state across all
 	// per-database pools belonging to this provider configuration.
 	scheduler    *dbScheduler
 	poolRegistry *sync.Map // map[string]*registryEntry
+	LockGrants   bool
 }
 
 // Client struct holding connection string
@@ -332,6 +336,17 @@ func (c *Client) Connect() (*DBConnection, error) {
 }
 
 func (c *Client) openAndPing(dsn string) (*DBConnection, error) {
+	conn, err := retryTransient(c, "connecting to PostgreSQL server", func() (*DBConnection, error) {
+		return c.openAndPingOnce(dsn)
+	})
+	if err != nil {
+		errString := strings.Replace(err.Error(), c.config.Password, "XXXX", 2)
+		return nil, fmt.Errorf("error connecting to PostgreSQL server %s (scheme: %s): %s", c.config.Host, c.config.Scheme, errString)
+	}
+	return conn, nil
+}
+
+func (c *Client) openAndPingOnce(dsn string) (*DBConnection, error) {
 	var db *sql.DB
 	var err error
 	if c.config.Scheme == "postgres" {
@@ -351,8 +366,7 @@ func (c *Client) openAndPing(dsn string) (*DBConnection, error) {
 		if db != nil {
 			_ = db.Close()
 		}
-		errString := strings.Replace(err.Error(), c.config.Password, "XXXX", 2)
-		return nil, fmt.Errorf("error connecting to PostgreSQL server %s (scheme: %s): %s", c.config.Host, c.config.Scheme, errString)
+		return nil, err
 	}
 
 	// Default MaxIdleConns=0 closes connections after use so DROP DATABASE
@@ -380,6 +394,10 @@ func (c *Client) openAndPing(dsn string) (*DBConnection, error) {
 		c,
 		*version,
 	}, nil
+}
+
+func (c *Client) IsLockGrants() bool {
+	return c.config.LockGrants
 }
 
 // fingerprintCapabilities queries PostgreSQL to populate a local catalog of
